@@ -1,0 +1,17 @@
+{
+  "name": "ai-rec",
+  "version": "1.0.0",
+  "description": "AI-powered transcription and summarization app for Vercel.",
+  "private": true,
+  "scripts": {
+    "start": "vercel dev"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.525.0",
+    "@aws-sdk/s3-request-presigner": "^3.525.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "vercel": "^33.6.2"
+  }
+}
