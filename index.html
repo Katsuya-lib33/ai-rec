@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI文字起こし＆要約</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>AI文字起こし＆要約</h1>
+        <p>音声ファイルや動画ファイルをアップロードしてください。</p>
+        <div class="upload-area">
+            <input type="file" id="fileInput">
+            <button id="uploadButton">アップロードして実行</button>
+        </div>
+        <div class="status-area">
+            <p id="statusText"></p>
+        </div>
+        <div class="results-area">
+            <div class="result-box">
+                <h2>文字起こし結果</h2>
+                <textarea id="transcriptionOutput" readonly></textarea>
+            </div>
+            <div class="result-box">
+                <h2>要約結果</h2>
+                <textarea id="summaryOutput" readonly></textarea>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
