@@ -1,15 +1,12 @@
 // Vercel Serverless Function
 // This function is triggered after a file is uploaded. It retrieves the file from storage,
-// sends it to a transcription service, and then sends the transcript to a summarization service.
-
-// IMPORTANT: You must set the following environment variables in your Vercel project settings:
-// - R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
-// - TRANSCRIPTION_API_KEY, SUMMARIZATION_API_KEY (replace with your actual AI service keys)
+// sends it to OpenAI Whisper for transcription, and then sends the transcript to GPT for summarization.
 
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
-// In a real implementation, you would use actual AI service SDKs/APIs.
-// For this placeholder, we will simulate the AI processing.
+const { OpenAI } = require("openai");
+const { toFile } = require("openai/uploads");
 
+// Initialize S3 Client for Cloudflare R2
 const accountId = process.env.R2_ACCOUNT_ID;
 const accessKeyId = process.env.R2_ACCESS_KEY_ID;
 const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
@@ -24,24 +21,58 @@ const R2 = new S3Client({
   },
 });
 
-// --- Placeholder AI Functions ---
-// In a real app, you would replace these with actual API calls to services
-// like AssemblyAI, Deepgram, OpenAI, Anthropic, etc.
+// Initialize OpenAI Client
+const openai = new OpenAI({
+  apiKey: process.env.SUMMARIZATION_API_KEY, // Using one key for both
+});
 
-async function transcribeAudio(fileBuffer) {
-  console.log("Simulating transcription for a file of size:", fileBuffer.length);
-  // Simulate network delay and processing time
-  await new Promise(resolve => setTimeout(resolve, 3000)); 
-  return "これは、アップロードされた音声ファイルの文字起こし結果のサンプルです。実際のアプリケーションでは、ここにAIサービスからの完全なトランスクリプトが入ります。";
+// --- Real AI Functions ---
+
+async function transcribeAudio(fileBuffer, originalFilename) {
+  console.log("Sending to OpenAI Whisper for transcription...");
+  
+  // Convert buffer to a file-like object for the OpenAI SDK
+  const file = await toFile(fileBuffer, originalFilename);
+
+  const transcription = await openai.audio.transcriptions.create({
+    file: file,
+    model: "whisper-1",
+  });
+
+  console.log("Transcription received from Whisper.");
+  return transcription.text;
 }
 
 async function summarizeText(transcript) {
-  console.log("Simulating summarization for a transcript of length:", transcript.length);
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  return "これは要約結果のサンプルです。AIが文字起こし内容を分析し、主要なポイントをまとめています。";
+  console.log("Sending transcript to GPT-4o for summarization...");
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "system",
+        content: "You are a highly skilled assistant that summarizes texts. Please provide a concise summary of the following transcript, highlighting the key points and any action items. Format the output in Japanese."
+      },
+      {
+        role: "user",
+        content: transcript
+      }
+    ],
+    temperature: 0.5,
+  });
+  console.log("Summary received from GPT-4o.");
+  return response.choices[0].message.content;
 }
+
 // --------------------------------
+
+// Helper function to convert a readable stream to a buffer
+const streamToBuffer = (stream) =>
+  new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(Buffer.concat(chunks)));
+  });
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -55,28 +86,24 @@ module.exports = async (req, res) => {
     }
 
     // 1. Get the file from R2
+    console.log(`Retrieving file from R2 with key: ${key}`);
     const command = new GetObjectCommand({
       Bucket: bucketName,
       Key: key,
     });
-    const { Body } = await R2.send(command);
-    
-    // Helper function to convert stream to buffer
-    const streamToBuffer = (stream) =>
-      new Promise((resolve, reject) => {
-        const chunks = [];
-        stream.on("data", (chunk) => chunks.push(chunk));
-        stream.on("error", reject);
-        stream.on("end", () => resolve(Buffer.concat(chunks)));
-      });
-
+    const { Body, Metadata } = await R2.send(command);
     const fileBuffer = await streamToBuffer(Body);
+    
+    // Extract original filename from the key (e.g., "randombytes-original-filename.mp3")
+    const originalFilename = key.split('-').slice(1).join('-');
+    console.log(`Original filename extracted: ${originalFilename}`);
 
-    // 2. Transcribe the audio
     // Note: If the file is a video, you'd need a step here to extract audio first.
     // This would require a library like ffmpeg, which can be complex on serverless.
-    // For now, we assume the uploaded file is audio.
-    const transcription = await transcribeAudio(fileBuffer);
+    // For now, we assume the uploaded file is a compatible audio format.
+    
+    // 2. Transcribe the audio
+    const transcription = await transcribeAudio(fileBuffer, originalFilename);
 
     // 3. Summarize the transcript
     const summary = await summarizeText(transcription);
@@ -86,6 +113,8 @@ module.exports = async (req, res) => {
 
   } catch (error) {
     console.error("Error processing file:", error);
-    res.status(500).json({ error: "Failed to process file." });
+    // Provide more detailed error information in the response for debugging
+    const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+    res.status(500).json({ error: "Failed to process file.", details: errorMessage });
   }
 };
